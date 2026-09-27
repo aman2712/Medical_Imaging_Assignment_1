@@ -2,3 +2,8 @@ data/
 checkpoints/
 report_assets/
 assignment-brief.pdf
+.venv/
+.ipynb_checkpoints/
+__pycache__/
+scripts/__pycache__/
+.DS_Store

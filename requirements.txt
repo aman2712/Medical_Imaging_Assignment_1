@@ -1,0 +1,9 @@
+ipykernel==6.29.5
+matplotlib==3.10.7
+nbconvert==7.16.4
+numpy==2.2.6
+pandas==2.3.3
+pydicom==3.0.1
+scikit-learn==1.7.2
+torch==2.8.0
+torchvision==0.23.0

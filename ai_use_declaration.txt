@@ -1,1 +1,75 @@
-TBF
+AI Use Declaration
+==================
+
+Student: Md Aman Khan
+Student ID: 25011138
+Module: ENG 2440 Medical Imaging & AI in Healthcare
+Assignment: Assignment 1 - Pneumonia Classification Challenge
+
+I used generative-AI tools during the preparation of this assignment. I remained
+responsible for the submitted code, results, interpretations, references and
+written claims. I tested the code and checked the outputs myself, and I can
+explain and reproduce the submitted work.
+
+1. GitHub Copilot
+------------------
+
+Tool: GitHub Copilot in Visual Studio Code.
+
+Purpose of use:
+
+- Python/PyTorch concepts, error messages and implementation problems.
+- To suggest small implementation examples and basic structure/boilerplate for code and project-support files.
+- To review, simplify and optimise code that I had written, after which I adapted the suggestions myself and tested the resulting implementation.
+
+Representative prompt types:
+
+- "Explain what this function is doing and why this error occurs."
+- "Suggest a basic PyTorch/project structure for this task"
+- "Review this implementation for bugs and suggest a simpler optimisation."
+- "Check this LaTeX report against the assignment brief and verify its page count."
+
+Affected submission parts:
+
+- Small code fragments and explanations related to the notebook and the supporting modules in the scripts/ directory.
+- Reproducibility support files, including requirements.txt
+- Verification of the compiled report.pdf against assignment grading rubrics.
+
+GitHub Copilot did not determine the assignment's research question, data
+splitting strategy, experiment plan, model choices, numerical results or final
+interpretations. Those decisions and the underlying implementation were my
+own. I reviewed and tested any suggestions before using them.
+
+2. ChatGPT
+----------
+
+Tool: ChatGPT.
+
+Purpose of use:
+
+- Grammar, spelling, clarity and style refinement of parts of the written report.
+- Suggestions for clearer wording while preserving my original technical meaning and conclusions.
+
+Representative prompt type:
+
+- "Improve the grammar and clarity of this paragraph without changing its technical meaning or claims."
+
+Affected submission parts:
+
+- Selected sentences and paragraphs in report.tex, including explanations of preprocessing, evaluation, limitations and conclusions.
+
+Most report text was originally written by me. ChatGPT provided limited
+language refinement only; it did not generate the report's analysis, figures,
+experimental outputs, references, notebook structure or conclusions.
+
+3. Independent work, verification and limits
+----------------------------------------------
+
+The planning and structure of the notebook, the data processing and split
+logic, the model and evaluation design, the experiment execution, the results,
+and the interpretation of those results were my own work. I independently ran
+and checked the experiments and verified the reported metrics and figures.
+
+I did not use an AI tool to fabricate experiments, outputs, references or
+interpretations. I did not upload the RSNA dataset, medical images, credentials
+or potentially identifying information to an external AI service.
