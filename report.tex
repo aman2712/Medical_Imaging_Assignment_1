@@ -1,0 +1,321 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[margin=0.7in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{caption}
+
+\graphicspath{{report_assets/25011138_ENG2440_A1_files/}}
+\newcommand{\placeholder}[1]{\textcolor{red}{[PLACEHOLDER: #1]}}
+\captionsetup[table]{skip=8pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\setlength{\textfloatsep}{6pt plus 2pt minus 2pt}
+\setlength{\floatsep}{5pt plus 2pt minus 2pt}
+\setlength{\intextsep}{5pt plus 2pt minus 2pt}
+
+\title{ENG 2440 Assignment 1: Pneumonia Classification Challenge}
+\author{Md Aman Khan\\Student ID: 25011138}
+\date{Fall 2026}
+
+\begin{document}
+\maketitle
+\vspace*{0.35in}
+
+\begin{abstract}
+This assignment developed a PyTorch pipeline to classify frontal chest X-rays as positive or negative for annotated lung opacity consistent with possible pneumonia. The RSNA examinations were aggregated at examination level and then split using the original anonymized NIH patient identifier to prevent patient-level leakage. DICOM images were normalized, resized and augmented using training-only transformations. A simple linear classifier using image-summary features served as the baseline and was compared with an ImageNet-pretrained ResNet-18 adapted for one-channel images. The CNN was trained first as a fixed feature extractor and then its final convolutional block was fine-tuned. On the untouched test set, the CNN achieved an accuracy of 0.7868, sensitivity of 0.7283, specificity of 0.8049, precision of 0.5365 and F1-score of 0.6178. The target represents expert annotations rather than confirmed diagnoses of pneumonia, so the results should not be interpreted as clinical diagnostic performance.
+\end{abstract}
+
+\section{Task and Target}
+Input: chest radiograph images taken from a frontal view in DICOM format.
+
+Output: prediction of whether lung opacity consistent with possible pneumonia is present.
+
+Clinical question: \emph{Does a frontal chest X-ray show lung opacity consistent with possible pneumonia?}
+
+A positive prediction indicates that the image contains an annotated lung opacity consistent with possible pneumonia, while a negative prediction means that no such opacity was annotated. A negative label does not necessarily imply that the radiograph is clinically normal because other abnormalities may be present.
+
+The target is also an indirect proxy for pneumonia rather than a confirmed diagnosis of it. The labels are based on expert annotations from the RSNA dataset and do not represent confirmed patient-record diagnoses. Therefore, the reported performance metrics describe how well the models reproduce the dataset annotations and not how accurately they diagnose pneumonia in clinical practice.
+
+\section{Data Inspection}
+The dataset contained 25,684 DICOM files and 28,989 annotation rows. There were 25,684 unique examinations and 11,171 unique source patients. Repeated annotation rows were collapsed by \texttt{patientId} using the maximum \texttt{Target} value.
+
+\begin{table}[H]
+\centering
+\caption{Examination-level class distribution.}
+\begin{tabular}{lrr}
+\toprule
+Class & Count & Proportion\\
+\midrule
+Negative (0) & 20,025 & 0.7797\\
+Positive (1) & 5,659 & 0.2203\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\linewidth]{25011138_ENG2440_A1_21_0.png}
+\caption{Six representative images, including a difficult positive example.}
+\end{figure}
+
+Example 4, shown at the bottom left of Figure 1, was selected as the difficult positive because it had the smallest annotated bounding-box area among the positive cases. Visually, it is a relatively clear frontal chest radiograph without a large or obvious focal consolidation; only subtle opacities are apparent. This makes the positive label difficult to identify from the image alone because the finding could be confused with normal vascular markings or other non-specific changes. In contrast, Examples 5 and 6 show more conspicuous increased lower-lung or diffuse opacity, although they also contain other technical artefacts. The bounding-box criterion is only a proxy for visual difficulty because the annotation is not displayed in the figure.
+
+DICOM inspection of the displayed examples found 1024 by 1024 image sizes, \texttt{MONOCHROME2} photometric interpretation, \texttt{CHEST} body-part metadata, and AP or PA view-position metadata.
+
+\section{Leakage-Safe Splits}
+The original anonymized \texttt{nih\_patient\_id} was used as the grouping unit for splitting.
+
+\begin{table}[H]
+\centering
+\caption{Patient-grouped split sizes and positive proportions.}
+\begin{tabular}{lrr}
+\toprule
+Split & Size & Positive proportion\\
+\midrule
+Training & 15,340 & 0.2162\\
+Validation & 5,180 & 0.2164\\
+Test & 5,164 & 0.2366\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Assertions confirmed that the three source-patient sets were pairwise disjoint. The test set was kept untouched until final evaluation.
+
+Patient-level grouping will not prevent leakage caused by scanner- or site-specific information. For example, images from the same hospital, scanner or preprocessing pipeline could appear in both the training and test sets. The model could then learn site-specific characteristics such as image borders, markers, contrast or compression patterns rather than clinically relevant lung features. To test this, I would identify available metadata such as hospital, scanner and manufacturer, and compare their distributions across the splits. If site information were available, I would group the data by site as well as patient, or use a leave-one-site-out evaluation in which entire sites are held out for testing. A substantial performance drop on an unseen site would suggest that the model has learned site-specific shortcuts and does not generalise reliably to new hospitals.
+
+\section{Preprocessing and Augmentation}
+DICOM images were converted to one-channel PyTorch tensors. Images were resized to 224 by 224 pixels. Intensities were clipped between the 1st and 99th percentiles and scaled to $[0,1]$. \texttt{MONOCHROME1} images were inverted for consistent grayscale interpretation.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.65\linewidth]{25011138_ENG2440_A1_40_0.png}
+\caption{Before-and-after training-only augmentation.}
+\end{figure}
+
+Training-only augmentation used small affine changes, mild brightness changes and contrast adjustments. Rotation was limited to 5 degrees, translation to approximately 3\% of image size, and scaling to 97--103\%. Horizontal flipping was not used because it could alter left-right orientation and reverse anatomical or acquisition markers. Validation and test images were not randomly augmented.
+
+These steps ensure a consistent input representation across DICOM files while also preserving the grayscale nature of the radiographs. Percentile clipping reduces the influence of extreme detector values and exposure differences without relying on statistics from the validation or test sets. Resizing to 224 by 224 pixels matches the expected input size of ResNet-18 and reduces computational cost, although very small abnormalities may lose detail during downsampling.
+
+\section{Class Imbalance and Simple Baselines}
+The positive-class weight was calculated from the training split only. The validation ablation was:
+
+\begin{table}[H]
+\centering
+\caption{Weighted versus unweighted validation results.}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Strategy & Acc. & Sens. & Spec. & Prec. & F1 & ROC-AUC & PR-AUC\\
+\midrule
+Unweighted & 0.7062 & 0.1713 & 0.8539 & 0.2446 & 0.2015 & 0.4746 & 0.2266\\
+Weighted & 0.5956 & 0.3220 & 0.6711 & 0.2129 & 0.2563 & 0.4748 & 0.2253\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The weighted and unweighted models used the same model, data splits, random seed, learning rate and number of epochs; only the loss function differed. Weighting increased sensitivity from 0.1713 to 0.3220 and F1-score from 0.2015 to 0.2563, but reduced accuracy, specificity and precision. ROC-AUC remained almost unchanged (0.4746 versus 0.4748), while PR-AUC decreased slightly (0.2266 versus 0.2253). Thus, class weighting mainly changed the classification trade-off at the 0.5 threshold rather than improving overall discrimination.
+
+The simple baseline used six image-summary features: mean intensity, standard deviation, the 10th percentile, median, the 90th percentile, and the proportion of pixels above 0.75. These features were standardized using training-split statistics and passed to one \texttt{nn.Linear} layer.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.45\linewidth]{25011138_ENG2440_A1_62_0.png}
+\caption{Simple baseline training and validation loss.}
+\end{figure}
+
+The trivial majority baseline provides a minimum reference point for evaluating further trained models. Since the negative class was the majority class, always predicting negative achieved high specificity and accuracy but zero sensitivity, precision and F1-score. This shows that accuracy alone can be misleading for an imbalanced dataset, and that a useful model must identify positive examinations rather than simply reproduce the majority class.
+
+\section{Pretrained CNN}
+ResNet-18 pretrained on ImageNet was adapted for one-channel chest radiographs. The first convolution was replaced with a one-channel convolution, initialized by averaging the original RGB filters. The original 1,000-class ImageNet head was replaced with a linear layer producing one binary-classification logit.
+
+The CNN was first trained as a fixed feature extractor, with the convolutional backbone frozen. The final convolutional block, \texttt{layer4}, was then unfrozen and fine-tuned.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.65\linewidth]{25011138_ENG2440_A1_92_0.png}
+\caption{CNN fixed-feature and fine-tuning losses.}
+\end{figure}
+
+The fixed feature extractor showed a general decrease in both training and validation loss, indicating that the new classification head learned useful information from the frozen pretrained features.
+
+During fine-tuning, the training loss decreased substantially from approximately 0.8167 to 0.5717. However, the validation loss fluctuated and increased overall, ending at approximately 0.9695. The divergence between decreasing training loss and increasing validation loss suggests overfitting during fine-tuning.
+
+Seeds 42, 123 and 2024 were used. Validation PR-AUC values were 0.5924, 0.5875 and 0.5809. The mean was 0.5869 and the standard deviation was 0.0058.
+
+\begin{table}[H]
+\centering
+\caption{Validation metrics across CNN seeds.}
+\scriptsize
+\begin{tabular}{lrrrrrrr}
+\toprule
+Seed & Acc. & Sens. & Spec. & Prec. & F1 & ROC-AUC & PR-AUC\\
+\midrule
+42 & 0.7822 & 0.6887 & 0.8081 & 0.4977 & 0.5778 & 0.8335 & 0.5924\\
+123 & 0.7784 & 0.7047 & 0.7987 & 0.4916 & 0.5792 & 0.8332 & 0.5875\\
+2024 & 0.7502 & 0.7565 & 0.7485 & 0.4537 & 0.5672 & 0.8328 & 0.5809\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The CNN was retrained using seeds 42, 123 and 2024 with the same data splits, preprocessing, augmentation and training settings. Validation PR-AUC was used as the primary metric because the positive class was imbalanced. The scores were 0.5924, 0.5875 and 0.5809, giving a mean of 0.5869 and a standard deviation of 0.0058. Compared with the simple baseline PR-AUC of 0.2266, the CNN improved by approximately 0.3603, which is substantially larger than the observed run-to-run variation. This comparison is based on validation performance; the untouched test set provides the final evaluation.
+
+\section{Final Evaluation}
+The final CNN test confusion matrix was:
+\[
+\begin{pmatrix}3173 & 769\\332 & 890\end{pmatrix}.
+\]
+Accuracy was 0.7868, sensitivity was 0.7283, specificity was 0.8049, precision was 0.5365 and F1-score was 0.6178.
+
+\begin{table}[H]
+\centering
+\caption{Final test-set comparison.}
+\scriptsize
+\resizebox{0.85\linewidth}{!}{\begin{tabular}{lrrrrrrr}
+\toprule
+Model & Acc. & Sens. & Spec. & Prec. & F1 & ROC-AUC & PR-AUC\\
+\midrule
+Trivial majority & 0.7630 & 0.0000 & 1.0000 & 0.0000 & 0.0000 & -- & --\\
+Simple features & 0.6985 & 0.1498 & 0.8686 & 0.2611 & 0.1903 & 0.4979 & 0.2487\\
+CNN & 0.7868 & 0.7283 & 0.8049 & 0.5365 & 0.6178 & 0.8549 & 0.6571\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{25011138_ENG2440_A1_111_0.png}
+\captionof{figure}{ROC curves.}
+\end{minipage}\hfill
+\begin{minipage}{0.48\linewidth}
+\centering
+\includegraphics[width=\linewidth]{25011138_ENG2440_A1_112_0.png}
+\captionof{figure}{Precision--recall curves.}
+\end{minipage}
+\end{figure}
+
+The ROC curve shows the trade-off between the true-positive rate and false-positive rate across thresholds. ROC-AUC measures how well the model ranks positive examinations above negative ones. The PR curve shows the trade-off between precision and recall and is more informative here because the positive class is less common. The dashed horizontal line represents test-set positive prevalence. Therefore, PR-AUC is particularly important for assessing the less common positive class, while ROC-AUC provides a broader threshold-independent measure of discrimination. The CNN achieved a ROC-AUC of 0.8549 and a PR-AUC of 0.6571.
+
+\vspace{6pt}
+
+\begin{table}[H]
+\centering
+\caption{Frozen thresholds selected using validation data and applied to test data.}
+\begin{tabular}{lrrrrrr}
+\toprule
+Operating point & Threshold & Acc. & Sens. & Spec. & Prec. & F1\\
+\midrule
+Screening & 0.31 & 0.7368 & 0.8322 & 0.7073 & 0.4684 & 0.5995\\
+High specificity & 0.72 & 0.8232 & 0.5876 & 0.8962 & 0.6371 & 0.6113\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.52\linewidth]{25011138_ENG2440_A1_124_0.png}
+\caption{CNN reliability diagram.}
+\end{figure}
+
+Most reliability-diagram points lie below the perfect-calibration line, indicating that the CNN is generally over-confident, particularly at higher predicted probabilities. Discrimination measures how well the model ranks positive cases above negative cases, whereas calibration measures whether predicted probabilities match observed frequencies. Therefore, the CNN can discriminate well while remaining poorly calibrated and may require calibration before its probabilities are used quantitatively.
+
+\section{Error and Subgroup Analysis}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.32\linewidth]{25011138_ENG2440_A1_128_0.png}
+\caption{True-positive, true-negative, false-positive and false-negative examples.}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{CNN performance by projection.}
+\scriptsize
+\resizebox{\linewidth}{!}{\begin{tabular}{lrrrrrrrrr}
+\toprule
+Projection & $n$ & Pos. $n$ & Pos. prop. & Acc. & Sens. & Spec. & F1 & ROC-AUC & PR-AUC\\
+\midrule
+AP & 2402 & 975 & 0.4059 & 0.7065 & 0.8021 & 0.6412 & 0.6893 & 0.8048 & 0.7291\\
+PA & 2762 & 247 & 0.0894 & 0.8566 & 0.4372 & 0.8978 & 0.3529 & 0.8103 & 0.3123\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The examples included a confident false positive ($p=0.930$), true negative ($p=0.245$), true positive ($p=0.987$) and false negative ($p=0.043$), showing that errors can occur at confident probabilities. AP images had higher sensitivity and F1-score, while PA images had higher specificity. ROC-AUC was similar for AP and PA (0.8048 and 0.8103), but PA PR-AUC was lower (0.3123 versus 0.7291), partly because PA prevalence was lower (0.0894 versus 0.4059).
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.34\linewidth]{25011138_ENG2440_A1_135_0.png}
+\caption{Grad-CAM examples.}
+\end{figure}
+
+Grad-CAM used \texttt{headline\_cnn.layer4[-1]}, which balances high-level semantic features with spatial information for localization. Heatmaps generally focused on or near the lungs, but some attention extended toward borders, markers and acquisition artefacts, suggesting possible scanner- or projection-specific shortcuts. Grad-CAM supports inspection but does not prove causation; masking suspected regions and testing unseen acquisition sources would be needed for further evidence.
+
+\section{Conclusion}
+This assignment produced a PyTorch pipeline for classifying annotated lung opacity in frontal chest X-rays. The ImageNet-pretrained ResNet-18 outperformed both the trivial majority and simple feature baselines and achieved a test accuracy of 0.7868, sensitivity of 0.7283, specificity of 0.8049, F1-score of 0.6178, ROC-AUC of 0.8549 and PR-AUC of 0.6571. However, the model was over-confident in the reliability analysis and performance varied between AP and PA projections. Grad-CAM also highlighted possible reliance on acquisition-related features in addition to lung regions. Therefore, the results demonstrate useful discrimination on this dataset, but they should not be interpreted as clinical diagnostic performance without further calibration and/or external validation.
+
+\appendix
+\section*{Appendix}
+\section*{Bonus A: Prevalence Shift and Threshold Transfer}
+\begin{table}[H]
+\centering
+\caption{Bonus A results.}
+\begin{tabular}{lrrrrrrr}
+\toprule
+Subset & Prev. & $n$ & Sens. & Spec. & Precision & F1 & ROC-AUC\\
+\midrule
+10\% positive & 0.10 & 4380 & 0.8288 & 0.7073 & 0.2393 & 0.3714 & 0.8487\\
+40\% positive & 0.40 & 3055 & 0.8322 & 0.7065 & 0.6540 & 0.7324 & 0.8549\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Changing prevalence had little effect on sensitivity, specificity or ROC-AUC, but substantially affected precision and F1-score. At 10\% prevalence, precision and F1-score were 0.2393 and 0.3714, compared with 0.6540 and 0.7324 at 40\% prevalence. This occurs because precision depends on the proportion of positive cases, whereas sensitivity and specificity do not. Therefore, thresholds validated on this dataset may produce many false-positive alerts in lower-prevalence clinical settings and would require prospective validation and recalibration.
+
+\section*{Bonus B: Shortcut Stress Test with a Control}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\linewidth]{25011138_ENG2440_A1_147_0.png}
+\caption{Original, border-masked and equal-area control-masked images.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.52\linewidth]{25011138_ENG2440_A1_151_0.png}
+\caption{Probability-change distributions.}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\linewidth]{25011138_ENG2440_A1_153_0.png}
+\caption{Grad-CAM before and after border masking.}
+\end{figure}
+
+Border-mask mean absolute $\Delta p$: 0.1307. Equal-area control-mask mean absolute $\Delta p$: 0.2510.
+
+The shortcut stress test compared the original images with versions in which the outer 8\% border or an approximately equal-area central control region was masked out. The mean absolute probability change was 0.1307 for the border mask and 0.2510 for the control mask. The three largest border effects increased the predicted probabilities from 0.0478 to 0.7840, 0.0842 to 0.8153 and 0.0957 to 0.8229. However, the larger control effect suggests that the model was more affected by removing central image content than by removing the border. Therefore, these results provide no strong evidence of a primarily border-based shortcut, although masking changes the image distribution and does not necessarily prove that the model uses clinically meaningful anatomy. Further investigation of lung regions and acquisition artefacts would be appropriate.
+
+\section*{References}
+\scriptsize
+\sloppy
+All figures in this report were generated from the executed assignment notebook using the methods and software cited below; no external figure was reproduced.
+\begin{enumerate}[nosep]
+\item Radiological Society of North America. \emph{RSNA Pneumonia Detection Challenge}. 2018.\\
+\url{https://www.rsna.org/education/ai-resources-and-training/ai-image-challenge/RSNA-Pneumonia-Detection-Challenge-2018}. Accessed 8 September 2026.
+\item Shih, G., Wu, C. C., Halabi, S. S., et al. Augmenting the National Institutes of Health chest radiograph dataset with expert annotations of possible pneumonia. \emph{Radiology: Artificial Intelligence}, 1(1):e180041, 2019. doi:10.1148/ryai.2019180041.
+\item Wang, X., Peng, Y., Lu, L., et al. ChestX-ray8: Hospital-scale chest X-ray database and benchmarks on weakly-supervised classification and localization of common thorax diseases. In \emph{Proceedings of CVPR}, pp. 3462--3471, 2017.\\
+\url{https://openaccess.thecvf.com/content_cvpr_2017/html/Wang_ChestX-ray8_Hospital-Scale_Chest_CVPR_2017_paper.html}
+\item He, K., Zhang, X., Ren, S. and Sun, J. Deep residual learning for image recognition. In \emph{Proceedings of CVPR}, 2016. doi:10.1109/CVPR.2016.90.
+\item Selvaraju, R. R., Cogswell, M., Das, A., et al. Grad-CAM: Visual explanations from deep networks via gradient-based localization. In \emph{Proceedings of ICCV}, pp. 618--626, 2017. doi:10.1109/ICCV.2017.74.
+\item Paszke, A., Gross, S., Massa, F., et al. PyTorch: An imperative style, high-performance deep learning library. In \emph{Advances in Neural Information Processing Systems}, 32, 2019. The implementation also used torchvision's ResNet-18 ImageNet weights.\\
+\url{https://pytorch.org/}\quad\url{https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.resnet18.html}
+\item The implementation also used scikit-learn, NumPy, pandas, Matplotlib and pydicom for splitting, metrics, numerical processing, tabular processing, plotting and DICOM handling.\\
+\url{https://scikit-learn.org/}\quad\url{https://numpy.org/}\quad\url{https://pandas.pydata.org/}\quad\url{https://matplotlib.org/}\quad\url{https://pydicom.github.io/pydicom/stable/}
+\end{enumerate}
+
+\end{document}
